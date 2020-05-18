@@ -1,5 +1,6 @@
 -- this query depends on customer_id. customer_id is currently setup to be a random number that refreshes every day based on shopify birdfacts update;
 -- so update this table - vu_acquisition_channel whenever you need to use the table while joining with email id;
+-- use this table as needed 
 
 drop table vu_acquisition_channel;
 create table vu_acquisition_channel as 
