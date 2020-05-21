@@ -1,4 +1,6 @@
 -- customers in US that made a retail purchase at one of our stores, do not have a shipping address, and do not exist in our experian database;
+drop table if exists vu_emails_list_of_customers_without_shipping_address;
+create temp table vu_emails_list_of_customers_without_shipping_address as
 with emails_list_of_customers_without_shipping_address as
   (select distinct email from birdfactsdev.birdfacts_analytics.dim_customer
     where id in
@@ -45,9 +47,12 @@ NULL as SHIPPING_COUNTRY
 from emails_list_of_customers_without_shipping_address where email not in (select distinct email from birdfactsdev.birdfacts_analytics.experian_data)
 ;
 
+select * from vu_emails_list_of_customers_without_shipping_address;
 
 
 -- customers in US that made a retail purchase at one of our stores, have a shipping address, and do not exist in our experian database;
+drop table if exists vu_emails_list_of_customers_with_shipping_address;
+create temp table vu_emails_list_of_customers_with_shipping_address as
 with emails_list_of_customers_with_shipping_address as
 (
 select 
@@ -99,7 +104,68 @@ from
   on a.shipping_address_id = d.id
 )
 select row_number() over(partition by 1 order by 1)  as SEQUENCE_NUMBER,
-* from emails_list_of_customers_with_shipping_address where email not in (select distinct email from experian_data)
+* from emails_list_of_customers_with_shipping_address 
+    where email not in (select distinct email from experian_data)
+    and email not in (select distinct email from vu_emails_list_of_customers_without_shipping_address)
 ;
 
+select * from vu_emails_list_of_customers_with_shipping_address;
 
+
+--------
+--------
+--------
+-- the following two table produce ZERO (0) records. I can't undersatnd why.
+--------
+--------
+--------
+
+
+-- mailchimp emails that have a 'subscribed' status but do not exist in experian_data fact_sales so far;
+drop table if exists vu_emails_list_of_customers_from_mailchimp;
+create temp table vu_emails_list_of_customers_from_mailchimp as
+select distinct email_address from
+(
+select
+email_address,
+status,
+row_number() over(partition by email_address order by timestamp_opt desc) as row_num
+from
+fivetran.mailchimp.member
+  where country_code = 'US'
+)
+where status <> 'unsubscribed'
+and row_num = 1
+and email_address not in (select distinct email from birdfactsdev.birdfacts_analytics.experian_data)
+and email_address not in (select distinct email from vu_emails_list_of_customers_without_shipping_address)
+and email_address not in (select distinct email from vu_emails_list_of_customers_with_shipping_address)
+and email_address not in (
+select distinct email from birdfactsdev.birdfacts_analytics.dim_customer)
+;
+
+-- iterable emails that have a 'subscribed' status but do not exist in experian_data or fact_sales so far;
+drop table if exists vu_emails_list_of_customers_from_iterable;
+create temp table vu_emails_list_of_customers_from_iterable as
+select distinct email from
+(
+select email, row_number() over(partition by email order by updated_at desc) as row_num
+from fivetran.iterable.user_history
+)
+where row_num = 1
+and email not in
+(
+  select email from
+  (
+  select email, row_number() over(partition by email order by updated_at desc) as row_num
+  from
+  "FIVETRAN"."ITERABLE"."USER_UNSUBSCRIBED_CHANNEL_HISTORY"
+  )
+  where row_num = 1
+)
+and email not in (select distinct email from birdfactsdev.birdfacts_analytics.experian_data)
+and email not in (select distinct email from vu_emails_list_of_customers_without_shipping_address)
+and email not in (select distinct email from vu_emails_list_of_customers_with_shipping_address)
+and email not in (select distinct email_address from vu_emails_list_of_customers_from_mailchimp)
+and email not like '%allbirds%'
+and email not in (select distinct email from birdfactsdev.birdfacts_analytics.dim_customer)
+;
